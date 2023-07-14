@@ -14,7 +14,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
 
-
 load_dotenv()
 
 client_id = getenv("SHOPIFY_CLIENT_ID")
@@ -47,9 +46,6 @@ Base.metadata.create_all(engine)
 # start redis-server in a terminal
 r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 app = FastAPI()
-
-
-from datetime import datetime, timedelta
 
 
 async def get_access_token(shop, auth_code):
