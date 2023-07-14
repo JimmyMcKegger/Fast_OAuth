@@ -8,6 +8,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from os import getenv, urandom
 from re import match
+from sqlalchemy import create_engine, Column, String, DateTime
+from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime, timedelta
+
 
 load_dotenv()
 
@@ -16,8 +22,34 @@ client_secret = getenv("SHOPIFY_CLIENT_SECRET")
 scopes = getenv("SHOPIFY_SCOPES")
 app_url = getenv("HOST_URL")
 
+engine = create_engine("sqlite:///shops.db", echo=True)
+Base = declarative_base()
+Session = sessionmaker(bind=engine)
+session = Session()
+
+
+# define model
+class ShopTokens(Base):
+    __tablename__ = "shop_tokens"
+    shop = Column(String, primary_key=True)
+    access_token = Column(String)
+    scope = Column(String)
+    expires_at = Column(DateTime)
+    associated_user_scope = Column(String)
+    session = Column(String)
+    account_number = Column(String)
+    associated_user = Column(JSON)
+
+
+# create db
+Base.metadata.create_all(engine)
+
+# start redis-server in a terminal
 r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 app = FastAPI()
+
+
+from datetime import datetime, timedelta
 
 
 async def get_access_token(shop, auth_code):
@@ -29,7 +61,40 @@ async def get_access_token(shop, auth_code):
             "code": auth_code,
         }
         response = await client.post(url, params=params)
-        print(response.json())
+        token_data = response.json()
+
+        # Calculate the expiration time
+        expires_in = int(token_data["expires_in"])
+        expires_at = datetime.now() + timedelta(seconds=expires_in)
+
+        token_entry = ShopTokens(
+            shop=shop,
+            access_token=token_data["access_token"],
+            scope=token_data["scope"],
+            expires_at=expires_at,
+            associated_user_scope=token_data["associated_user_scope"],
+            session=token_data["session"],
+            account_number=token_data["account_number"],
+            associated_user=token_data["associated_user"],
+        )
+        session.add(token_entry)
+        session.commit()
+
+
+async def get_access_token_from_db(shop):
+    token_entry = session.query(ShopTokens).filter_by(shop=shop).first()
+    if token_entry:
+        token_data = {
+            "access_token": token_entry.access_token,
+            "scope": token_entry.scope,
+            "expires_in": token_entry.expires_in,
+            "associated_user_scope": token_entry.associated_user_scope,
+            "session": token_entry.session,
+            "account_number": token_entry.account_number,
+            "associated_user": token_entry.associated_user,
+        }
+        return token_data
+    return None
 
 
 @app.get("/")
